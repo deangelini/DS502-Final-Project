@@ -1,0 +1,418 @@
+---
+output:
+  html_document:
+    latex_engine: xelatex
+  pdf_document: 
+    latex_engine: xelatex
+---
+```{r}
+#library(knitr)
+```
+---
+title: "HW5: DS502"
+author: "Danielle Angelini"
+output:
+  html_document:
+    latex_engine: xelatex
+  pdf_document: 
+    latex_engine: xelatex
+---
+
+#Data Exploration
+```{r}
+song_csv = "C:/Users/deang/Documents/DS502/Project/YearPredictionMSD.csv"
+song_read = read.csv(song_csv)
+song_data = as.data.frame(song_read)
+```
+
+```{r}
+train = song_data[1:463715, ]
+test = song_data[463716:515345, ]
+```
+
+```{r}
+library(dplyr)
+train = train %>% mutate_all(~(scale(.) %>% as.vector)) 
+test = test %>% mutate_all(~(scale(.) %>% as.vector))
+```
+
+```{r}
+X.train = train[, -1]
+Y.train = train[, 1]
+X.test = test[, -1]
+Y.test = test[, 1]
+```
+
+```{r}
+set.seed(1)
+lm1 = lm(year ~ . , data = train)
+summary(lm1)
+plot(lm1)
+```
+
+```{r}
+#Checking multicollinearity (see HW3)
+library(regclass)
+vif_values = VIF(lm1)
+
+barplot(vif_values, main = "VIF Values for MultiCollinearity", horiz = TRUE, col = "lightblue")
+abline(v = 5, lwd = 3, lty = 2, col = "red")
+
+print(vif_values)
+```
+
+```{r}
+cor(train)
+```
+
+```{r}
+#some correlation between timbre_avg_02 and timbre_avg_01; timbre_avg_06 and timbre_cov_10**; timbre_avg_09 and timbre_cov_31; timbre_avg_06 and timbre_cov_06**
+
+#timbre_avg_04 - timbre_avg_06 - timbre_cov_04 - timbre_cov_06 - timbre_cov_08 - timbre_cov_09 - timbre_cov_10 - timbre_cov_11 have high VIF > 5 = high mutlicollinearity 
+```
+
+#Data Modeling
+#Linear
+```{r}
+#Multiple Linear Regression
+#Variation 1
+
+set.seed(1)
+lm1_pred = predict(lm1, newdata = test)
+mse_lm1 = mean((lm1_pred - test$year)^2)
+print(paste("Linear Model Test Error: ", round(mse_lm1,4)))
+```
+
+```{r}
+#Variation 2
+
+set.seed(1)
+lm2 = lm(year ~ . - timbre_avg_04 - timbre_avg_06 - timbre_cov_04 - timbre_cov_06 - timbre_cov_08 - timbre_cov_09 - timbre_cov_10 - timbre_cov_11, data = train)
+
+lm2_pred = predict(lm2, newdata = test)
+mse_lm2 = mean((lm2_pred - test$year)^2)
+print(paste("Linear Model Test Error (Multi-col): ", round(mse_lm2,4)))
+
+```
+
+```{r}
+#Variation 3
+
+set.seed(1)
+lm3 = lm(year ~ . - timbre_avg_06 - timbre_cov_06, data = train)
+
+lm3_pred = predict(lm3, newdata = test)
+mse_lm3 = mean((lm3_pred - test$year)^2)
+print(paste("Linear Model Test Error (Multi-col): ", round(mse_lm3,4)))
+
+```
+
+```{r}
+#Variation 4
+
+set.seed(1)
+lm4 = lm(year ~ . + (timbre_avg_06 * timbre_cov_06), data = train)
+
+lm4_pred = predict(lm4, newdata = test)
+mse_lm4 = mean((lm4_pred - test$year)^2)
+print(paste("Linear Model Test Error (Multi-col): ", round(mse_lm4,4)))
+
+```
+
+#Lasso
+```{r}
+#Lasso
+#Variation 1
+
+library(glmnet)
+set.seed(1)
+train_mat = model.matrix(year ~ ., data = train)
+test_mat = model.matrix(year ~ ., data = test)
+grid = 10^ seq (10, -2, length = 100)
+
+lasso = glmnet(train_mat, train$year, alpha = 1, lambda = grid)
+lasso_cv = cv.glmnet(train_mat, train$year, alpha = 1, lambda = grid)
+bestlam_lasso = lasso_cv$lambda.min
+
+lasso_pred = predict(lasso, s = bestlam_lasso, newx = test_mat)
+mse_lasso = mean((lasso_pred - test$year)^2)
+lasso_coef = predict(lasso, type="coefficients", s = bestlam_lasso)[1:91, ]
+non_zero = length(lasso_coef[lasso_coef != 0])
+
+zero_coef = coef(lasso_cv, s = bestlam_lasso)
+
+print(paste("Lasso Model Test Error: ", round(mse_lasso,4)))
+print(paste("Number of Non-Zero Coefficient Estimates: ", non_zero))
+zero_coef[zero_coef[,1] == 0,]
+
+```
+
+```{r}
+#Variation 2
+
+set.seed(1)
+train_mat2 = model.matrix(year ~ . - timbre_avg_04 - timbre_avg_06 - timbre_cov_04 - timbre_cov_06 - timbre_cov_08 - timbre_cov_09 - timbre_cov_10 - timbre_cov_11, data = train)
+
+test_mat2 = model.matrix(year ~ . - timbre_avg_04 - timbre_avg_06 - timbre_cov_04 - timbre_cov_06 - timbre_cov_08 - timbre_cov_09 - timbre_cov_10 - timbre_cov_11, data = test)
+
+lasso2 = glmnet(train_mat2, train$year, alpha = 1, lambda = grid)
+lasso_cv2 = cv.glmnet(train_mat2, train$year, alpha = 1, lambda = grid)
+bestlam_lasso2 = lasso_cv2$lambda.min
+
+lasso_pred2 = predict(lasso2, s = bestlam_lasso2, newx = test_mat2)
+mse_lasso2 = mean((lasso_pred2 - test$year)^2)
+lasso_coef2 = predict(lasso2, type="coefficients", s = bestlam_lasso2)[1:84, ]
+non_zero2 = length(lasso_coef2[lasso_coef2 != 0])
+
+zero_coef2 = coef(lasso_cv2, s = bestlam_lasso2)
+
+print(paste("Lasso Model Test Error (Multi-Col): ", round(mse_lasso2, 4)))
+print(paste("Number of Non-Zero Coefficient Estimates: ", non_zero2))
+zero_coef2[zero_coef2[,1] == 0,]
+```
+
+```{r}
+#Variation 3
+set.seed(1)
+train_mat3 = model.matrix(year ~ . - timbre_avg_06 - timbre_cov_06, data = train)
+test_mat3 = model.matrix(year ~ . - timbre_avg_06 - timbre_cov_06, data = test)
+
+lasso3 = glmnet(train_mat3, train$year, alpha = 1, lambda = grid)
+lasso_cv3 = cv.glmnet(train_mat3, train$year, alpha = 1, lambda = grid)
+bestlam_lasso3 = lasso_cv3$lambda.min
+
+lasso_pred3 = predict(lasso3, s = bestlam_lasso3, newx = test_mat3)
+mse_lasso3 = mean((lasso_pred3 - test$year)^2)
+lasso_coef3 = predict(lasso3, type="coefficients", s = bestlam_lasso3)[1:89, ]
+non_zero3 = length(lasso_coef3[lasso_coef3 != 0])
+
+zero_coef3 = coef(lasso_cv3, s = bestlam_lasso3)
+
+print(paste("Lasso Model Test Error (Multi-Col): ", round(mse_lasso3, 4)))
+print(paste("Number of Non-Zero Coefficient Estimates: ", non_zero3))
+zero_coef3[zero_coef3[,1] == 0,]
+```
+
+```{r}
+#Variation 4
+set.seed(1)
+train_mat4 = model.matrix(year ~ . + (timbre_avg_06 * timbre_cov_06), data = train)
+test_mat4 = model.matrix(year ~ . + (timbre_avg_06 * timbre_cov_06), data = test)
+
+lasso4 = glmnet(train_mat4, train$year, alpha = 1, lambda = grid)
+lasso_cv4 = cv.glmnet(train_mat4, train$year, alpha = 1, lambda = grid)
+bestlam_lasso4 = lasso_cv4$lambda.min
+
+lasso_pred4 = predict(lasso4, s = bestlam_lasso4, newx = test_mat4)
+mse_lasso4 = mean((lasso_pred4 - test$year)^2)
+lasso_coef4 = predict(lasso4, type="coefficients", s = bestlam_lasso4)[1:92, ]
+non_zero4 = length(lasso_coef4[lasso_coef4 != 0])
+
+zero_coef4 = coef(lasso_cv4, s = bestlam_lasso4)
+
+print(paste("Lasso Model Test Error (Multi-Col): ", round(mse_lasso4, 4)))
+print(paste("Number of Non-Zero Coefficient Estimates: ", non_zero4))
+zero_coef4[zero_coef4[,1] == 0,]
+```
+
+#Ridge Regression
+```{r}
+#Ridge Regression (see HW3)
+#Variation 1
+
+set.seed(1)
+
+ridge = glmnet(train_mat, train$year, alpha = 0, lambda = grid)
+ridge_cv = cv.glmnet(train_mat, train$year, alpha = 0, lambda = grid)
+bestlam_ridge = ridge_cv$lambda.min
+
+ridge_pred = predict(ridge, s = bestlam_ridge, newx = test_mat)
+mse_ridge = mean((ridge_pred - test$year)^2)
+
+print(paste("Ridge Model Test Error: ", round(mse_ridge, 4)))
+
+```
+
+```{r}
+#Variation 2
+
+set.seed(1)
+
+ridge2 = glmnet(train_mat2, train$year, alpha = 0, lambda = grid)
+ridge_cv2 = cv.glmnet(train_mat2, train$year, alpha = 0, lambda = grid)
+bestlam_ridge2 = ridge_cv2$lambda.min
+
+ridge_pred2 = predict(ridge2, s = bestlam_ridge2, newx = test_mat2)
+mse_ridge2 = mean((ridge_pred2 - test$year)^2)
+
+print(paste("Ridge Model Test Error (Multi-Col): ", round(mse_ridge2, 4)))
+
+```
+
+```{r}
+#Variation 3
+set.seed(1)
+
+ridge3 = glmnet(train_mat3, train$year, alpha = 0, lambda = grid)
+ridge_cv3 = cv.glmnet(train_mat3, train$year, alpha = 0, lambda = grid)
+bestlam_ridge3 = ridge_cv3$lambda.min
+
+ridge_pred3 = predict(ridge3, s = bestlam_ridge3, newx = test_mat3)
+mse_ridge3 = mean((ridge_pred3 - test$year)^2)
+
+print(paste("Ridge Model Test Error (Multi-Col): ", round(mse_ridge3, 4)))
+```
+
+```{r}
+#Variation 4
+library(glmnet)
+set.seed(1)
+
+ridge4 = glmnet(train_mat4, train$year, alpha = 0, lambda = grid)
+ridge_cv4 = cv.glmnet(train_mat4, train$year, alpha = 0, lambda = grid)
+bestlam_ridge4 = ridge_cv4$lambda.min
+
+ridge_pred4 = predict(ridge4, s = bestlam_ridge4, newx = test_mat4)
+mse_ridge4 = mean((ridge_pred4 - test$year)^2)
+
+print(paste("Ridge Model Test Error (Multi-Col): ", round(mse_ridge4, 4)))
+```
+
+#PCA
+```{r}
+library(stats)
+
+x_vars = rbind(X.train, X.test)
+x_vars_df = data.frame(x_vars)
+pca_out = prcomp(x_vars_df, scale = TRUE)
+
+pca_var = cumsum((pca_out$sdev)^2) / sum((pca_out$sdev)^2)
+
+print(pca_var)
+
+```
+
+```{r}
+summary(pca_out)
+```
+
+```{r}
+#Variation 1
+
+library(pls)
+set.seed(1)
+pcr1 = pcr(year ~ ., data = train, scale = TRUE, validation = "CV")
+```
+
+```{r}
+validationplot(pcr1, val.type = "MSEP")
+```
+
+```{r}
+#Variation 1
+set.seed(1)
+pcr_pred1 = predict(pcr1, newdata = test, ncomp = 80)
+mse_pcr1 = mean((pcr_pred1 - test$year)^2)
+print(paste("PCR Model Test Error: ", round(mse_pcr1,4)))
+
+```
+
+```{r}
+#Variation 2
+
+set.seed(1)
+
+pcr2 = pcr(year ~ . - timbre_avg_04 - timbre_avg_06 - timbre_cov_04 - timbre_cov_06 - timbre_cov_08 - timbre_cov_09 - timbre_cov_10 - timbre_cov_11, data = train, scale = TRUE, validation = "CV")
+validationplot(pcr2, val.type = "MSEP")
+```
+
+```{r}
+set.seed(1)
+pcr_pred2 = predict(pcr2, newdata = test, ncomp = 77)
+mse_pcr2 = mean((pcr_pred2 - test$year)^2)
+print(paste("PCR Model Test Error: ", round(mse_pcr2,4)))
+```
+
+```{r}
+#Variation 3
+set.seed(1)
+
+pcr3 = pcr(year ~ . - timbre_avg_06 - timbre_cov_06, data = train, scale = TRUE, validation = "CV")
+validationplot(pcr3, val.type = "MSEP")
+```
+
+```{r}
+set.seed(1)
+pcr_pred3 = predict(pcr3, newdata = test, ncomp = 77)
+mse_pcr3 = mean((pcr_pred3 - test$year)^2)
+print(paste("PCR Model Test Error: ", round(mse_pcr3,4)))
+```
+
+```{r}
+#Variation 4
+
+set.seed(1)
+
+pcr4 = pcr(year ~ . + (timbre_avg_06 * timbre_cov_06), data = train, scale = TRUE, validation = "CV")
+validationplot(pcr4, val.type = "MSEP")
+```
+
+```{r}
+set.seed(1)
+pcr_pred4 = predict(pcr4, newdata = test, ncomp = 80)
+mse_pcr4 = mean((pcr_pred4 - test$year)^2)
+print(paste("PCR Model Test Error: ", round(mse_pcr4,4)))
+```
+
+```{r}
+test_avg = mean(test$year)
+mse_test_avg = mean((test_avg - test$year)^2)
+
+lm1_r2 = 1 - (mse_lm1/mse_test_avg)
+lm2_r2 = 1 - (mse_lm2/mse_test_avg)
+lm3_r2 = 1 - (mse_lm3/mse_test_avg)
+lm4_r2 = 1 - (mse_lm4/mse_test_avg)
+
+ridge_r2 = 1 - (mse_ridge/mse_test_avg)
+ridge2_r2 = 1 - (mse_ridge2/mse_test_avg)
+ridge3_r2 = 1 - (mse_ridge3/mse_test_avg)
+ridge4_r2 = 1 - (mse_ridge4/mse_test_avg)
+
+lasso_r2 = 1 - (mse_lasso/mse_test_avg)
+lasso2_r2 = 1 - (mse_lasso2/mse_test_avg)
+lasso3_r2 = 1 - (mse_lasso3/mse_test_avg)
+lasso4_r2 = 1 - (mse_lasso4/mse_test_avg)
+
+pcr1_r2 = 1 - (mse_pcr1/mse_test_avg)
+pcr2_r2 = 1 - (mse_pcr2/mse_test_avg)
+pcr3_r2 = 1 - (mse_pcr3/mse_test_avg)
+pcr4_r2 = 1 - (mse_pcr4/mse_test_avg)
+
+```
+
+```{r}
+models = c("Linear 1", "Linear 2", "Linear 3", "Linear 4", "Ridge Reg 1", "Ridge Reg 2", "Ridge Reg 3", "Ridge Reg4", "Lasso 1", "Lasso 2", "Lasso 3", "Lasso 4", "PCR 1", "PCR 2", "PCR 3", "PCR 4")
+
+mse_sum = c(mse_lm1, mse_lm2, mse_lm3, mse_lm4, mse_ridge, mse_ridge2, mse_ridge3, mse_ridge4, mse_lasso, mse_lasso2, mse_lasso3, mse_lasso4, mse_pcr1, mse_pcr2, mse_pcr3, mse_pcr4)
+
+r2_sum = c(lm1_r2, lm2_r2, lm3_r2, lm4_r2, ridge_r2, ridge2_r2, ridge3_r2, ridge4_r2, lasso_r2, lasso2_r2, lasso3_r2, lasso4_r2, pcr1_r2, pcr2_r2, pcr3_r2, pcr4_r2)
+
+data.frame(Models = models, MSE = mse_sum, R2 = r2_sum)
+
+```
+
+```{r}
+models_best = c("Linear", "Ridge Reg", "Lasso", "PCR")
+mse_best = c(mse_lm4, mse_ridge4, mse_lasso4, mse_pcr1)
+r2_best = c(lm4_r2, ridge4_r2, lasso4_r2, pcr4_r2)
+
+data.frame(Models = models_best, MSE = mse_best, R2 = r2_best)
+
+```
+
+```{r}
+
+```
+
+
+```
